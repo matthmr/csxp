@@ -1,0 +1,81 @@
+.\" manpage for csxp
+
+.\" name catg date version title
+.TH csxp 1 "Apr 2022" "0.1.0" "csxp manpage"
+
+.SH NAME
+csxp \- Customizable & Simple XML Parser
+
+.SH SYNOPSIS
+.B csxp
+[-f <file>] [-p <preset>]
+
+.SH DESCRIPTION
+.
+.P
+.B csxp
+is a simple XML parser that uses a
+monolithic method of parsing,
+ignoring XML syntax errors and
+getting data according to
+presets stored in
+.B $SRC/presets
+
+.SH OPTIONS
+
+.TP
+.B \-f <file>
+announce file. If this option is not used or <file> is '-'
+then <file> is
+.B STDIN
+(pipe).
+
+.TP
+.B \-p <preset>
+announce <preset> as the preset to be used. This
+.B has
+to be compiled beforehand.
+
+.TP
+.B \-h
+displays a help message, then exits.
+
+.TP
+.B \-v
+displays the current version, then exits.
+
+.TP
+.B \-l
+lists available presets, then exits.
+
+.SH DEFAULTS
+.P
+This program was made with the intention
+to beautify archlinux's RSS feed, so that's
+the default preset of csxp.
+.P
+Change the default preset by changing
+.B static const Preset def_preset
+in
+.B $SRC/config.h
+
+.SH NOTES
+.IP \[bu]
+By default, optionless <preset> is the default preset.
+
+.IP \[bu]
+As a pipe, you run just
+
+.PP
+.in +4n
+.EX
+<command> | csxp
+.EE
+.in
+.PP
+
+If you have changed your default preset.
+
+.SH DEVELOPERS
+mH (https://github.com/matthmr)
+
