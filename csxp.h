@@ -9,8 +9,8 @@
 #  endif
 
 // `common`
-#  define END { NULL, 0 }
-#  define BEGIN END,
+#  define END { "", 0 },
+#  define BEGIN END
 
 // `bool`
 #  define false 0
@@ -21,11 +21,9 @@ typedef unsigned char bool;
 #  define _OK 0
 #  define _EOL 1
 #  define _MORE 2
-#    define _MORE_LIM 3
-#    define _MORE_SEEK_LIM 4
-#    define _MORE_SEEK 5
 #  define _IGNORE 6
 #  define _END 7
+#  define _ERR 8
 
 // <--> `arg`
 #  define INFO -1
@@ -41,7 +39,7 @@ typedef char callback;
 #  define KiB POW2 (10)
 #  define __IO__ 4*KiB
 #  define LENGTH(x) (sizeof (x) / sizeof (*x))
-#  define WHITESPACE(x) (x == ' ' || x = '\t' || x = '\r' || x = '\t')
+#  define WHITESPACE(x) (x == ' ' || x == '\t' || x == '\r' || x == '\t')
 
 // `struct preset`
 enum type {
@@ -51,10 +49,16 @@ enum type {
 	SO_THAT,   // TODO
 };
 
-// `struct preset`
-struct iter {
+// `union iter`
+struct _iter {
 	char* string;
 	unsigned int leq;
+	unsigned int len;
+};
+
+union iter {
+	unsigned int len;
+	struct _iter iter;
 };
 
 // `struct preset`
@@ -67,7 +71,11 @@ struct common {
 struct preset {
 	enum type type;
 	struct common* common;
-	struct iter* iter;
+	union iter* iter;
+
+	__action_enter_ret__ (*action_enter) (__action_enter_args__);
+	__action_exit_ret__ (*action_exit) (__action_exit_args__);
+	__action_load_ret__ (*action_load) (__action_load_args__);
 };
 
 struct presetlist {
@@ -77,7 +85,7 @@ struct presetlist {
 
 typedef enum type Type;
 typedef struct common Common;
-typedef struct iter Iter;
+typedef union iter Iter;
 typedef struct preset Preset;
 typedef struct presetlist PresetList;
 
@@ -86,14 +94,12 @@ typedef struct presetlist PresetList;
 #ifndef LOCK_XML
 #  define LOCK_XML
 
-const char* tag_open[] = { "<", ">" };
-const char* tag_close[] = { "</", ">" };
+const char* tag[] = { "<", ">" };
 // const char* attr[] = { "\"", "\"" }; // not implemented
 // const char* comment[] = { "<!--", "-->" }; // not implemented
 
 enum promise {
-	PTAG_OPEN = 0,
-	PTAG_CLOSE,
+	PTAG = 0,
 	// PATTR, // not implemented
 	// PCOMMENT, // not implemented
 };
@@ -105,19 +111,13 @@ struct xml_promise {
 	unsigned int ch;
 };
 
-const char** matches[2] = {
-	[PTAG_OPEN] = tag_open,
-	[PTAG_CLOSE] = tag_close,
+const char** matches[1] = {
+	tag,
 	// [PATTR] = attr, // not implemented
 	// [PCOMMENT] = comment, // not implemented
 };
 
-enum compound {
-	XML_NULLC = 0,   // >
-	XML_CLOSEC,      // </
-};
-
-const unsigned int xml_matchers = 1; // indexed
+const unsigned int xml_matchers = 0; // indexed
 struct xml_promise resolve;
 
 struct common* parent;
@@ -125,8 +125,27 @@ struct common* end;
 
 unsigned int goffset = 0;
 unsigned int nbufferlen;
-char* nbuffer;
 
-typedef enum compound Compound;
+char* nbuffer;
+char* cnbuffer;
+
+char _common = 0;
+char _close = 0;
+
+struct promises {
+	char HFILE;
+	char HPRESET;
+
+	char PFILE;
+	char PPRESET;
+
+	FILE* file;
+	Preset preset;
+};
+
+typedef char arg;
+typedef struct promises promise;
+
+extern promise p;
 
 #endif

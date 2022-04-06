@@ -5,9 +5,9 @@
 #include <stdio.h>
 
 #include "config.h"
-#include "csxp.h"
 
-#define INC(x) x++; goffset++
+#define exclude_token(x) x++; goffset++
+#define calc_goffset(x) goffset=x-fbuffer
 
 #define matchg resolve.group // enum promise -- group from `matcher`
 #define matchstr resolve.str // unsigned int -- string from `@matcher`
@@ -15,21 +15,7 @@
 
 #define matcher ((char**)(matches[matchg]))
 
-struct promises {
-	char HFILE;
-	char HPRESET;
-
-	char PFILE;
-	char PPRESET;
-
-	FILE* file;
-	Preset preset;
-};
-
-typedef char arg;
-typedef struct promises promise;
-
-static promise p = {
+promise p = {
 	.HFILE = false,
 	.HPRESET = false,
 	.PFILE = false,
@@ -37,6 +23,7 @@ static promise p = {
 	.file = NULL,
 	.preset = def_preset,
 };
+
 static int ENO;
 static char fbuffer[__IO__];
 
@@ -47,7 +34,7 @@ static void list_presets (void);
 static callback feed (char*);
 static void pcomp (void);
 static callback ensurename (char**);
-static callback seek (char**, char, Compound);
+static callback seek (char**, char);
 static callback getdata (char**, int);
 static int die (void);
 
@@ -182,28 +169,35 @@ int parse (FILE* file) {
 	static unsigned int rbuffer;
 	static bool magic = 1;
 
+	callback __parse__ = _OK;
+
 _buffer:
 	_fbuffer = (char*)fbuffer;
 	__fbuffer = &_fbuffer;
 	rbuffer = fread (fbuffer, sizeof (char), __IO__, file);
 
+	if (goffset)
+		goffset == 0;
+
 	if (magic) {
 
 		if (rbuffer < 5 || strncmp (fbuffer, "<?xml", 5)) {
 			fputs ("Missing \"<?xml\" magic number\n", stderr);
-			return 1;
+			__parse__ = _ERR;
+			goto _fclose;
 		}
 
 		magic = 0;
 		_fbuffer = &_fbuffer[5];
+		calc_goffset (_fbuffer);
 
-		seek (__fbuffer, '>', XML_NULLC); // TODO: implement attribute seeking if needed
-		_fbuffer++; // '>'
-		goffset += _fbuffer - fbuffer;
+		if (rbuffer < __IO__)
+			;
+
+		seek (__fbuffer, '>'); // TODO: implement attribute seeking if needed
+		exclude_token (_fbuffer);
 
 	}
-
-	callback __parse__ = _OK;
 
 	if (rbuffer < __IO__)
 		;
@@ -211,6 +205,10 @@ _buffer:
 	__parse__ = feed (_fbuffer);
 
 	switch (__parse__) {
+
+	case _ERR:
+		goto _fclose;
+		break;
 
 	case _OK:
 		goto _buffer;
@@ -220,16 +218,17 @@ _buffer:
 		break;
 
 	case _MORE:
-		break;
-
-	case _MORE_LIM:
+		// allocate a separate buffer for the leading sub-array
+		goto _buffer;
 		break;
 
 	case _IGNORE:
 		break;
 
 	case _END:
-		return 0;
+_fclose:
+		fclose (p.file);
+		return __parse__;
 		break;
 
 	}
@@ -269,72 +268,82 @@ void list_presets (void) {
 
 callback feed (char* buffer) {
 
-	Compound compound = XML_NULLC;
+	callback __feed__ = _OK;
 
 	static char* _buffer;
 	static char* _match;
 
-	static unsigned int offset;
-
 	if (! _buffer)
 		_buffer = buffer;
 
-_feed_reset:
-	callback __feed__ = _OK;
-
+_get_match:
 	if (parent == end)
 		return _END;
+	else if (_common || parent + 1 == end)
+		_common = 1;
 
-	else if (matchg == PTAG_CLOSE) {
-		matchg = PTAG_OPEN; // get data; store it; format it; print it
+	_match = matcher[matchstr]; // ""
+	
+	if (*_buffer != '<') {
+
+		char** __buffer = &_buffer;
+
+		_buffer = strchr (_buffer, _match[matchch]); // match with the current (opening) delimiter token
+		calc_goffset (_buffer); // calculate current offset to the delimiter token
+
+		if (_common)
+			p.preset.action_load (_buffer, __buffer);
+
 	}
 
-_get_match:
-	_match = matcher[matchstr];
-
-	_buffer = strchr (_buffer, _match[matchch]);
-
+_after_common:
 	if (! _buffer)
-		;
+		return _MORE;
 
-	offset = _buffer? (_buffer - buffer): 0;
-	goffset += _buffer? (_buffer - buffer): 0;
+	exclude_token (_buffer); // advance current buffer to AFTER the delimiter token
 
-	if (_buffer) {
-		_buffer += offset; // <
-		goffset += offset;
-		matchg = PTAG_CLOSE;
+	if (*_buffer == '/') { // if found a '/' character, set the tag as a closing tag ...
+		exclude_token (_buffer); // ... and also exclude it
+		_close = 1;
+	}
 
 _ensure_name:
-		__feed__ = ensurename (&_buffer);
+	__feed__ = ensurename (&_buffer);
 
-		switch (__feed__) {
+	switch (__feed__) {
 
-		case _OK:
-			compound = XML_NULLC;
-			goto _seek;
-			break;
+	case _ERR:
+		return _ERR;
+		break;
 
-		case _MORE:
-			return _MORE;
-			break;
+	case _OK:
+		goto _seek;
+		break;
 
-		case _IGNORE:
+	case _MORE:
+		return _MORE;
+		break;
+
+	case _IGNORE:
 _seek:
-			matchstr = 1;
-			if (seek (&_buffer, matcher[matchstr][matchch], compound) == _MORE)
-				return _MORE;
-			else {
-				INC (_buffer); // <
-				matchg = PTAG_CLOSE;
-				matchstr = 0;
-				goto _feed_reset;
-			}
-			break;
+
+		if (*_buffer == '>')
+			goto _skip_seek;
+
+		matchstr = 1;
+		if (seek (&_buffer, matcher[matchstr][matchch]) == _MORE)
+			return _MORE;
+		else _skip_seek: {
+
+			if (*(_buffer - 1) == '/') // self-closing tag
+				_close = 0;
+
+			exclude_token (_buffer);
+			matchstr = 0;
+			goto _get_match;
 
 		}
-
-		_close_group: goto _get_match;
+		break;
 
 	}
 
@@ -345,6 +354,7 @@ _seek:
 void pcomp (void) {
 
 	unsigned int n = 1;
+	unsigned int _n = 0;
 
 	int i = 0, j = 0;
 
@@ -357,48 +367,77 @@ void pcomp (void) {
 		n++;
 	}
 
-	nbufferlen = (unsigned int)j;
-	nbuffer = realloc (nbuffer, nbufferlen);
 	parent = p.preset.common;
-	end = &p.preset.common[n];
+	end = &p.preset.common[n-1];
+
+	n = 0;
+
+	for (n = p.preset.iter->len; n >= 1; n--) {
+		i = p.preset.iter[n].iter.len;
+		if (j < i)
+			j = i;
+	}
+
+	nbufferlen = (unsigned int)j;
+
+	nbuffer = realloc (nbuffer, nbufferlen);
+	cnbuffer = realloc (cnbuffer, nbufferlen);
 
 }
 
 callback ensurename (char** _tbuffer) {
 
 	unsigned int noffset;
+	unsigned int gindex;
 
 	char* tbuffer = *_tbuffer;
 	char* space_tbuffer = NULL;
 	char* close_tbuffer = NULL;
 
-	if (goffset + (nbufferlen - 1) >= __IO__)
+	gindex = goffset + nbufferlen;
+
+	if (gindex >= __IO__)
 		return _MORE;
 
-	close_tbuffer = strchr (tbuffer, '>');
+	close_tbuffer = strchr (tbuffer, '>'); // find closing tag
 
 	if (! close_tbuffer)
 		return _MORE;
 
+	if (*(close_tbuffer - 1) == '/') // self-closing tag
+		_close = 0;
+
 	if (close_tbuffer - tbuffer > nbufferlen) { // overshot == there is a space after[1] / before[2]
 
-		if (*tbuffer == ' ') { // [2] check if there is a space before ...
-			char* tchar;
-			for (unsigned int i = 0; tchar = &tbuffer[i]; i++) // ... then adjust the buffer for it
-				if (*tchar != ' ') {
-					*_tbuffer = tchar;
-					goffset += i;
+		if (*tbuffer == ' ') { // [2] check if there is a space before ... (xml syntax error [ignore])
+
+			unsigned int i = 0;
+			char t;
+
+			while (gindex + i < __IO__) {
+				t = tbuffer[i];
+				if (! WHITESPACE (t)) {
+					tbuffer += i; // skip all whitespace ...
+					goffset += i; // ... add it to the global offset
+					break;
 				}
+				else
+					i++;
+			}
+
 		}
 
-		space_tbuffer = strchr (tbuffer, ' '); // [1] check if there is a space after
+		space_tbuffer = strchr (tbuffer, ' '); // [1] check if there is a space after (xml attribute [ignored as of v0.1.0])
 
 		if (! space_tbuffer)
 			;
 		else if (space_tbuffer - tbuffer > nbufferlen) { // overshot == name is bigger than the preset's
-			char* __tbuffer = tbuffer;
 			tbuffer = close_tbuffer;
-			goffset += tbuffer - __tbuffer;
+			calc_goffset (tbuffer);
+
+			if (_close)
+				_close = 0;
+
 			return _IGNORE;
 		}
 
@@ -413,16 +452,56 @@ callback ensurename (char** _tbuffer) {
 	if (! noffset)
 		;
 
-	strncpy (nbuffer, tbuffer, noffset);
-	char* __tbuffer = tbuffer;
-	*_tbuffer = space_tbuffer? space_tbuffer+1: close_tbuffer+1;
-	goffset += space_tbuffer + 1 - __tbuffer;
+	strncpy (nbuffer, tbuffer, noffset); // copy name to `nbuffer`
 
-	if (! strncmp ((const char*)nbuffer,
-	               (const char*)(parent+1)->string,
-	                            noffset)) {
+	*_tbuffer = space_tbuffer? (space_tbuffer): (close_tbuffer);
+	calc_goffset (*_tbuffer);
+
+	if (_common) {
+
+			if (! _close)
+				p.preset.action_enter (noffset);
+
+			else {
+				_close = 0;
+				p.preset.action_exit (noffset);
+			}
+
+		return _OK;
+	}
+
+	else if (_close &&
+		!strncmp (
+			(const char*)nbuffer,
+			(const char*)(parent)->string,
+			noffset)
+	) { // && ! _common
+		parent--;
+		_close = 0;
+		return _OK;
+	}
+
+	else if (_close) { // this parser is monolithic; XML syntax errors outside targets are irrelevant
+		_close = 0;
+		return _IGNORE;
+	}
+
+	else if (
+		!strncmp (
+			(const char*)nbuffer,
+			(const char*)(parent+1)->string,
+			noffset)
+	) {
+
+		if (_close) {
+			parent--;
+			_close = 0;
+			return _OK;
+		}
+
 		parent++;
 		return _OK;
+
 	}
 
 	else
@@ -430,19 +509,17 @@ callback ensurename (char** _tbuffer) {
 
 }
 
-callback seek (char** _tbuffer, char __match, Compound compound) {
+callback seek (char** _tbuffer, char __match) {
 
 	char* seekee;
 	char* tbuffer = *_tbuffer;
-
-	if (! compound)
-		;
 
 	seekee = strchr (tbuffer, __match);
 
 	if (! seekee)
 		return _MORE;
 
+	calc_goffset (seekee);
 	*_tbuffer = seekee;
 }
 
@@ -463,7 +540,7 @@ int main (int argc, char** argv) {
 
 	else {
 		pcomp ();
-		return parse (p.file);
+		return parse (p.file); // <-- file is closed here
 	}
 
 	ok: return 0;
