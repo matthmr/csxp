@@ -126,10 +126,6 @@ void clean_iter (void) {
 	_fmt[2],\
 	lbuffer[field2]
 
-void fmtfooter (void) {
-
-}
-
 void fmtheader (char** __fmt) {
 
 	char* str = lbuffer[field1];
@@ -149,13 +145,53 @@ void fmtheader (char** __fmt) {
 
 }
 
+void clean_lbuffer (void) {
+
+	bool _field;
+	char* _str;
+
+	unsigned int clen;
+
+	unsigned int amount;
+	unsigned int calls;
+	unsigned int rem;
+
+	for (unsigned int i = 0; i < FIELDS; i++) {
+
+		_field = i;
+		clen = lbufferlen[_field].clen;
+		_str = lbuffer[_field];
+
+		amount = (
+			&lbuffer[_field][lbufferlen[_field].glen] -
+			&lbuffer[_field][lbufferlen[_field].clen]
+		);
+
+		if (! amount)
+			continue;
+
+		calls = amount / 4;
+		rem = amount % 4;
+
+		unsigned int j;
+
+		if (calls)
+			*(int*)&_str[clen] = 0; // honestly, C impresses my sometimes...
+
+		else for (j = 0; j < rem; j++)
+			_str[clen + j] = '\0';
+
+	}
+
+}
+
 void print (void) {
 
 	char* _fmt[3];
 
-	fmtheader ((char**)_fmt);
-	fmtfooter ();
+	clean_lbuffer ();
 
+	fmtheader ((char**)_fmt);
 	printf (__LIST_ITEM__);
 
 }
@@ -165,6 +201,9 @@ __action_exit_ret__ action_exit (void) {
 	if (field == field2) {
 		_iter_len = 2;
 		field = field1;
+
+		_common = 0;
+		parent--;
 
 		clean_iter ();
 		print ();

@@ -170,11 +170,17 @@ int parse (FILE* file) {
 	static unsigned int rbuffer;
 	static bool magic = 1;
 
-	callback __parse__ = _OK;
+	bool then_stop = false;
+
+	callback __feed__ = _OK;
 
 _buffer:
 	_fbuffer = (char*)fbuffer;
 	__fbuffer = &_fbuffer;
+
+	if (then_stop)
+		goto _fclose;
+
 	rbuffer = fread (fbuffer, sizeof (char), __IO__, file);
 
 	if (goffset)
@@ -184,7 +190,7 @@ _buffer:
 
 		if (rbuffer < 5 || strncmp (fbuffer, __MAGIC__, 5)) {
 			fputs ("Missing \"" __MAGIC__ "\" magic number\n", stderr);
-			__parse__ = _ERR;
+			__feed__ = _ERR;
 			goto _fclose;
 		}
 
@@ -193,7 +199,7 @@ _buffer:
 		calc_goffset (_fbuffer);
 
 		if (rbuffer < __IO__)
-			;
+			then_stop = true;
 
 		seek (__fbuffer, '>'); // TODO: implement attribute seeking if needed
 		exclude_token (_fbuffer);
@@ -201,11 +207,11 @@ _buffer:
 	}
 
 	if (rbuffer < __IO__)
-		;
+		then_stop = true;
 
-	__parse__ = feed (_fbuffer);
+	__feed__ = feed (_fbuffer);
 
-	switch (__parse__) {
+	switch (__feed__) {
 
 	case _ERR:
 		goto _fclose;
@@ -229,7 +235,7 @@ _buffer:
 	case _END:
 _fclose:
 		fclose (p.file);
-		return __parse__;
+		return __feed__;
 		break;
 
 	}
@@ -286,7 +292,6 @@ _get_match:
 	
 	if (*_buffer != __match) {
 
-		/// TODO: check for missing data???
 		char* __buffer = _buffer;
 
 		_buffer = strchr (_buffer, __match); // match with the current (opening) delimiter token
@@ -298,7 +303,7 @@ _get_match:
 	}
 
 _after_common:
-	if (! _buffer)
+	if (! _buffer) //
 		return _MORE;
 
 	matchstr = 1;
