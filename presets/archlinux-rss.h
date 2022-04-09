@@ -7,12 +7,19 @@
 #  define LOCK_PRESET__ARCHLINUX_RSS
 
 /********************
- * <pkg>: <version> *
+ * <pkg>:           *
  *    <description> *
  ********************/
 
 // locals
-#  define FIELDS 3
+#  define FIELDS 2
+#  define field1 0
+#  define field2 1
+
+// macros
+#  define AVAILABLE (_iter[i-1] < iter[i].iter.leq)
+#  define MATCH(x) (_iter[x] == iter[x+1].iter.leq)
+#  define START_I (__iter_len - _iter_len + 1)
 
 Common common[] = {
 	BEGIN
@@ -39,75 +46,159 @@ Iter iter[] = {
 		.iter = {
 			.string = "title",
 			.leq = 1,
-			.len = 6,
+			.len = 5,
 		}
 	},
 	{
 		.iter = {
 			.string = "description",
 			.leq = 1,
-			.len = 12,
+			.len = 11,
 		}
 	},
 };
 
-unsigned int* _iter = NULL;
-unsigned int* _iter_len = 0;
+unsigned int _iter[FIELDS]; // iteration number per field
+unsigned int _iter_len = FIELDS;
+unsigned int __iter_len = FIELDS;
+
+struct fmtbuffer {
+	unsigned int glen; // global length
+	unsigned int clen; // current length
+};
 
 char* lbuffer[FIELDS];
-unsigned int lbufferlen[FIELDS];
+struct fmtbuffer lbufferlen[FIELDS];
+
+unsigned char field;
+bool ltoken;
 
 __action_enter_ret__ action_enter (unsigned int offset) {
 
-	if (! _iter) {
-
-		_iter = (unsigned int*)
-		calloc (
-			(*_iter_len = p.preset.iter->len),
-			sizeof (unsigned int)
-		);
-
-	}
-
 	Iter* iter = p.preset.iter;
 
-	for (unsigned int i = *_iter_len - 1; i >= 0; i--) {
-		if (iter[i].iter.len == offset) {
+	// loop through the iterable fields looking for the one that matches;
+	// then assign that as the new iterable parent
+	for (unsigned int i = START_I; i <= __iter_len; i++)
 
-			if (_iter[i] < iter[i].iter.leq &&
-			!strncmp (
-				(const char*)nbuffer,
-				(const char*)iter[i].iter.string,
-				offset)
-			) {
-				_iter[i]++;
-			}
-			else
+		if (iter[i].iter.len == offset)
+
+			if (AVAILABLE &&
+				!strncmp (
+					(const char*)nbuffer,
+					(const char*)iter[i].iter.string,
+					offset)
+			)
+
+			{
+				ltoken = 1;
+				_iter[i-1]++;
+				_iter_len--;
 				return;
+			}
 
+			else if (! AVAILABLE)
+				continue;
+
+}
+
+void clean_iter (void) {
+	for (unsigned int i = 0; i < FIELDS; i++)
+		_iter[i] = 0;
+}
+
+#  define ESC                     "\x1b["
+#  define __RESET__               ESC "0m"
+#  define __BOLD__(x)             ESC "1m"  x __RESET__
+#  define __BOLD_RED__(x)         ESC "1;31m" x __RESET__
+#  define __BOLD_LIGHT_GREEN__(x) ESC "1;92m" x __RESET__
+#  define __BOLD_DARK_GREEN__(x)  ESC "1;32m" x __RESET__
+#  define __FORMAT__ \
+	__BOLD_RED__               ("rss/") \
+	__BOLD__                   ("%s") \
+	__BOLD_LIGHT_GREEN__       (" %s") \
+	__BOLD_DARK_GREEN__        (" (%s)") \
+	                           "\n\t%s\n"
+
+#  define __LIST_ITEM__ __FORMAT__,\
+	_fmt[0],\
+	_fmt[1],\
+	_fmt[2],\
+	lbuffer[field2]
+
+void fmtfooter (void) {
+
+}
+
+void fmtheader (char** __fmt) {
+
+	char* str = lbuffer[field1];
+	char* next = str;
+
+	for (unsigned int i = 0; i < 3; i++) {
+		if (i < 2) {
+			next = strchr (str, ' ');
+			*next = '\0';
+			__fmt[i] = str;
+			str = next+1;
 		}
+		else
+			__fmt[i] = str;
+
 	}
-	
 
 }
 
-__action_exit_ret__ action_exit (unsigned int offset) {
-	_iter[0]--;
+void print (void) {
+
+	char* _fmt[3];
+
+	fmtheader ((char**)_fmt);
+	fmtfooter ();
+
+	printf (__LIST_ITEM__);
+
 }
 
-void arrange_f2f (void) {
+__action_exit_ret__ action_exit (void) {
+
+	if (field == field2) {
+		_iter_len = 2;
+		field = field1;
+
+		clean_iter ();
+		print ();
+	}
+	else
+		field++;
 
 }
 
-__action_load_ret__ action_load (char* bbuffer, char** cbuffer) {
-	if (_iter[0] == 1) { // arrange first two fields
-		arrange_f2f ();
+__action_load_ret__ action_load (char* match_buffer, char* base_buffer) {
+
+	unsigned int len = match_buffer - base_buffer;
+	Iter* iter = p.preset.iter;
+
+	if (MATCH (field)) { // arrange first two fields
+
+		unsigned int llen = lbufferlen[field].glen;
+
+		if (! llen || llen < len)
+			lbufferlen[field].glen = len;
+
+		if (llen < lbufferlen[field].glen) {
+			llen = lbufferlen[field].glen;
+
+			// `lbuffer[field1]` has to have an extra character
+			// because we want to format it
+			lbuffer[field] = (char*) realloc (lbuffer[field], (field == field1)? llen + 1: llen);
+		}
+
+		lbufferlen[field].clen = len; // (field == field1)? len + 1: len;
+		strncpy (lbuffer[field], base_buffer, len);
+
 	}
 
-	else { // arrange last field
-
-		// print
-	}
 }
 
 const Preset archlinuxrss = {

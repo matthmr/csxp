@@ -41,6 +41,9 @@ typedef char callback;
 #  define LENGTH(x) (sizeof (x) / sizeof (*x))
 #  define WHITESPACE(x) (x == ' ' || x == '\t' || x == '\r' || x == '\t')
 
+// XML standard
+#  define __MAGIC__ "<?xml"
+
 // `struct preset`
 enum type {
 	ITER_VAL,  // DONE
@@ -129,8 +132,9 @@ unsigned int nbufferlen;
 char* nbuffer;
 char* cnbuffer;
 
-char _common = 0;
-char _close = 0;
+bool _common = 0; // lock common; begin iterating
+bool _close = 0;  // seek close
+char* _match;     // matching string from @matches
 
 struct promises {
 	char HFILE;

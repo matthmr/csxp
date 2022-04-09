@@ -12,6 +12,7 @@
 #define matchg resolve.group // enum promise -- group from `matcher`
 #define matchstr resolve.str // unsigned int -- string from `@matcher`
 #define matchch resolve.ch   // unsigned int -- char from `matcher/@string`
+#define __match _match[matchch]
 
 #define matcher ((char**)(matches[matchg]))
 
@@ -35,7 +36,7 @@ static callback feed (char*);
 static void pcomp (void);
 static callback ensurename (char**);
 static callback seek (char**, char);
-static callback getdata (char**, int);
+static void xmlcomp (void);
 static int die (void);
 
 arg parseargs (int margc, char** margv) {
@@ -177,12 +178,12 @@ _buffer:
 	rbuffer = fread (fbuffer, sizeof (char), __IO__, file);
 
 	if (goffset)
-		goffset == 0;
+		goffset = 0;
 
 	if (magic) {
 
-		if (rbuffer < 5 || strncmp (fbuffer, "<?xml", 5)) {
-			fputs ("Missing \"<?xml\" magic number\n", stderr);
+		if (rbuffer < 5 || strncmp (fbuffer, __MAGIC__, 5)) {
+			fputs ("Missing \"" __MAGIC__ "\" magic number\n", stderr);
 			__parse__ = _ERR;
 			goto _fclose;
 		}
@@ -271,7 +272,6 @@ callback feed (char* buffer) {
 	callback __feed__ = _OK;
 
 	static char* _buffer;
-	static char* _match;
 
 	if (! _buffer)
 		_buffer = buffer;
@@ -279,19 +279,20 @@ callback feed (char* buffer) {
 _get_match:
 	if (parent == end)
 		return _END;
-	else if (_common || parent + 1 == end)
+	else if (! _common && parent + 1 == end)
 		_common = 1;
 
-	_match = matcher[matchstr]; // ""
+	_match = matcher[matchstr];
 	
-	if (*_buffer != '<') {
+	if (*_buffer != __match) {
 
-		char** __buffer = &_buffer;
+		/// TODO: check for missing data???
+		char* __buffer = _buffer;
 
-		_buffer = strchr (_buffer, _match[matchch]); // match with the current (opening) delimiter token
+		_buffer = strchr (_buffer, __match); // match with the current (opening) delimiter token
 		calc_goffset (_buffer); // calculate current offset to the delimiter token
 
-		if (_common)
+		if (_common && ltoken)
 			p.preset.action_load (_buffer, __buffer);
 
 	}
@@ -300,6 +301,8 @@ _after_common:
 	if (! _buffer)
 		return _MORE;
 
+	matchstr = 1;
+	_match = matcher[matchstr];
 	exclude_token (_buffer); // advance current buffer to AFTER the delimiter token
 
 	if (*_buffer == '/') { // if found a '/' character, set the tag as a closing tag ...
@@ -327,12 +330,12 @@ _ensure_name:
 	case _IGNORE:
 _seek:
 
-		if (*_buffer == '>')
+		if (*_buffer == __match)
 			goto _skip_seek;
 
-		matchstr = 1;
-		if (seek (&_buffer, matcher[matchstr][matchch]) == _MORE)
+		if (seek (&_buffer, __match) == _MORE)
 			return _MORE;
+
 		else _skip_seek: {
 
 			if (*(_buffer - 1) == '/') // self-closing tag
@@ -399,7 +402,7 @@ callback ensurename (char** _tbuffer) {
 	if (gindex >= __IO__)
 		return _MORE;
 
-	close_tbuffer = strchr (tbuffer, '>'); // find closing tag
+	close_tbuffer = strchr (tbuffer, __match); // find closing tag
 
 	if (! close_tbuffer)
 		return _MORE;
@@ -459,12 +462,17 @@ callback ensurename (char** _tbuffer) {
 
 	if (_common) {
 
-			if (! _close)
+			if (! _close) // set next seek as field data
 				p.preset.action_enter (noffset);
 
-			else {
+			else { // close field data
 				_close = 0;
-				p.preset.action_exit (noffset);
+
+				if (ltoken) {
+					ltoken = 0;
+					p.preset.action_exit ();
+				}
+
 			}
 
 		return _OK;
@@ -509,18 +517,24 @@ callback ensurename (char** _tbuffer) {
 
 }
 
-callback seek (char** _tbuffer, char __match) {
+callback seek (char** _tbuffer, char match) {
 
 	char* seekee;
 	char* tbuffer = *_tbuffer;
 
-	seekee = strchr (tbuffer, __match);
+	seekee = strchr (tbuffer, match);
 
 	if (! seekee)
 		return _MORE;
 
 	calc_goffset (seekee);
 	*_tbuffer = seekee;
+
+}
+
+void xmlcomp (void) {
+	for (unsigned int i = 0; i < FIELDS; i++)
+		lbuffer[i] = (char*) calloc (1, sizeof (char));
 }
 
 int die (void) {
@@ -539,6 +553,7 @@ int main (int argc, char** argv) {
 		return die ();
 
 	else {
+		xmlcomp ();
 		pcomp ();
 		return parse (p.file); // <-- file is closed here
 	}
